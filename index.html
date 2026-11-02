@@ -44,6 +44,11 @@ button.sec{background:#2c3a2f;color:var(--tx)}
 #end .t{font-size:16px}
 #end .res{font-size:22px;font-weight:800;margin:14px 0 4px}
 #cf{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:50}
+.score .t{flex:1 1 0;min-width:0}
+.score .t:last-child{justify-content:flex-end}
+.score .n{flex:none;white-space:nowrap;padding:0 6px}
+#tA,#tB,#enA,#enB{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#lA,#lB,#eA,#eB{flex:none;display:inline-flex}
 </style>
 </head>
 <body>
@@ -152,9 +157,11 @@ function loop(ts){
   if(!st)return;
   const dt=Math.min(50,ts-(st.last||ts));st.last=ts;
   const sp=+$('sp').value;
-  if(!st.over){
+  if(!st.over&&!st.atk){
     st.min+=dt/1000*1.6*sp;                 // ~56 sn'de 90 dk (1x)
-    if(st.min>=90){st.min=90;st.over=true;endMatch();}
+    const nx=st.sched[st.i];
+    if(nx!==undefined&&st.min>=nx){st.min=nx;st.i++;newAttack();}
+    else if(nx===undefined&&st.min>=90){st.min=90;st.over=true;endMatch();}
   }
   $('clk').textContent=Math.floor(st.min)+'’';
   drawPitch();
@@ -182,7 +189,6 @@ function loop(ts){
     }
   }else{
     drawGoal(0);
-    if(!st.over){st.wait=(st.wait||0)+dt/1000*sp;if(st.wait>0.5)newAttack();}
   }
   raf=requestAnimationFrame(loop);
 }
@@ -196,7 +202,7 @@ function resolve(a){
 }
 function log(t){const l=$('log');l.innerHTML='<div>'+t+'</div>'+l.innerHTML;}
 function endMatch(){
-  log('<b>Maç bitti: '+st.s.A+' - '+st.s.B+'</b>');$('go').textContent='Tekrar Oyna';
+  log('<b>Maç bitti: '+st.s.A+' - '+st.s.B+'</b> ('+st.sched.length+' atak)');$('go').textContent='Tekrar Oyna';
   const A=st.s.A,B=st.s.B,nA=$('nA').value,nB=$('nB').value;
   $('enA').textContent=nA;$('enB').textContent=nB;$('eS').textContent=A+' : '+B;
   $('eA').innerHTML=$('lA').innerHTML;$('eB').innerHTML=$('lB').innerHTML;
@@ -226,10 +232,19 @@ function confetti(cols){
   })();
 }
 
+function planAttacks(){
+  // Oranlar birbirinden uzaksa (büyük favori) ortalama atak sayısı artar; sonuç yine rastgele 3-15 arası
+  const m=model(),d=Math.abs(m.pa-m.pb);
+  const mean=7+6*d;
+  const g=(Math.random()+Math.random()+Math.random()-1.5)*8;
+  const n=Math.max(3,Math.min(15,Math.round(mean+g)));
+  const t=[];for(let i=0;i<n;i++)t.push(2+Math.random()*86);
+  return t.sort((a,b)=>a-b);
+}
 function start(){
   if(raf)cancelAnimationFrame(raf);
   refreshInfo();
-  st={min:0,s:{A:0,B:0},atk:null,wait:0,over:false};
+  st={min:0,s:{A:0,B:0},atk:null,wait:0,over:false,i:0,sched:planAttacks()};
   hideEnd();$('sc').textContent='0 : 0';$('log').innerHTML='';$('go').textContent='Maçı Yeniden Başlat';
   raf=requestAnimationFrame(loop);
 }
