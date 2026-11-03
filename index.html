@@ -144,7 +144,7 @@ function refreshInfo(){
   $('ba').style.width=m.pa*100+'%';$('bb').style.width=m.pb*100+'%';
   $('ba').style.background=$('cA').value;$('bb').style.background=$('cB').value;
   $('chn').textContent='Atak sonu gol şansı: '+nA+' %'+Math.round(m.convA*100)+' · '+nB+' %'+Math.round(m.convB*100);
-  setSides();if(!raf)scene(0,0);
+  setSides();if(!raf)scene();
 }
 ['nA','nB','oA','oB','oD','cA','cB'].forEach(i=>$(i).addEventListener('input',refreshInfo));
 
@@ -152,11 +152,15 @@ function refreshInfo(){
 function fit(){
   const r=$('wrap').getBoundingClientRect(),d=Math.min(2,window.devicePixelRatio||1);
   cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));
-  ctx.setTransform(d,0,0,d,0,0);W=r.width;H=r.height;if(!raf)scene(0,0);
+  ctx.setTransform(d,0,0,d,0,0);W=r.width;H=r.height;if(!raf)scene();
 }
 addEventListener('resize',fit);
-const GG=()=>H*0.035;
-function scene(shT,shB){
+const GG=()=>H*0.035,RP=()=>W*.045;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),lerp=(a,b,t)=>a+(b-a)*t,ease=t=>1-(1-t)*(1-t);
+const tcol=k=>$(k==='A'?'cA':'cB').value,tnm=k=>$(k==='A'?'nA':'nB').value||'?';
+const kyOf=top=>top?3+GG()+W*.05:H-3-GG()-W*.05;
+function scene(kd){
+  kd=kd||{};
   ctx.fillStyle='#2e8b3a';ctx.fillRect(0,0,W,H);
   for(let i=1;i<14;i+=2){ctx.fillStyle='rgba(255,255,255,.04)';ctx.fillRect(0,i*H/14,W,H/14);}
   ctx.strokeStyle='rgba(255,255,255,.65)';ctx.lineWidth=2.5;
@@ -169,9 +173,9 @@ function scene(shT,shB){
     ctx.strokeRect((W-sw)/2,top?3:H-3-sh,sw,sh);
     ctx.beginPath();ctx.arc(W/2,top?ph+3:H-ph-3,W*.1,top?0:Math.PI,top?Math.PI:2*Math.PI);ctx.stroke();
   }
-  goal(true,shT);goal(false,shB);
+  goal(true,kd.shT||0);goal(false,kd.shB||0);
   const topK=st&&st.htDone?'B':'A',botK=topK==='A'?'B':'A';
-  keeper(W/2,ph*.62,topK);keeper(W/2,H-ph*.62,botK);
+  keeper(true,topK,kd.top);keeper(false,botK,kd.bot);
 }
 function goal(top,shake){
   const gw=W*.28,gh=GG(),x=(W-gw)/2,y=top?3:H-3-gh;
@@ -187,30 +191,100 @@ function disc(x,y,col,txt,r,alpha){
   ctx.fillStyle='#fff';ctx.font='bold '+Math.round(r*.6)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
   ctx.fillText(txt.slice(0,3).toUpperCase(),x,y);ctx.globalAlpha=1;
 }
-function keeper(x,y,k){disc(x,y,$(k==='A'?'cA':'cB').value,$(k==='A'?'nA':'nB').value||'?',W*.045,.85);}
+function keeper(top,k,d){        // kaleci: d varsa o köşeye uzanır (eldiven + kol)
+  const r=RP(),y=kyOf(top);let x=W/2;
+  if(d){
+    x+=d.dx;const gx=x+d.sgn*d.L,gy=y+(top?1:-1)*d.L*.35;
+    ctx.strokeStyle='#fff';ctx.lineWidth=r*.35;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(gx,gy);ctx.stroke();
+    ctx.beginPath();ctx.arc(gx,gy,r*.34,0,7);ctx.fillStyle='#ffe14a';ctx.fill();
+  }
+  disc(x,y,tcol(k),tnm(k),r,.95);
+}
+function ballDraw(x,y){
+  const r=Math.max(4,W*.017);
+  ctx.beginPath();ctx.arc(x+1,y+2,r,0,7);ctx.fillStyle='rgba(0,0,0,.25)';ctx.fill();
+  ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fillStyle='#fff';ctx.fill();ctx.lineWidth=1.5;ctx.strokeStyle='#222';ctx.stroke();
+  ctx.beginPath();ctx.arc(x,y,r*.4,0,7);ctx.fillStyle='#222';ctx.fill();
+}
 function bigText(t,sz,y){
   ctx.fillStyle='#fff';ctx.shadowColor='rgba(0,0,0,.6)';ctx.shadowBlur=8;
   ctx.font='bold '+sz+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(t,W/2,y);ctx.shadowBlur=0;
 }
 
-/* ---- Atak ---- */
+/* ---- Atak sırasında olmayan dakikalar: gerçek topla pas oyunu ve top kapma ---- */
+function newPlay(team,x,y){
+  const a={x:clamp(x,W*.2,W*.8),y:clamp(y,H*.36,H*.64)};
+  const b={x:x<W/2?W*.74:W*.26,y:clamp(a.y+(Math.random()-.5)*H*.1,H*.36,H*.64)};
+  st.pl={team,P:[a,b],h:0,t:0,n:0,max:2+Math.floor(Math.random()*3),steal:false,def:null,m:null,ds:null};
+  st.ball={x:a.x,y:a.y};
+}
+function stepPlay(dt){
+  const p=st.pl,f=p.P[p.h],o=p.P[1-p.h];
+  p.t+=dt/600*speed;
+  if(!p.steal){
+    const t=Math.min(1,p.t);
+    st.ball.x=lerp(f.x,o.x,t);st.ball.y=lerp(f.y,o.y,t)-Math.sin(t*Math.PI)*H*.02;
+    if(p.t>=1){
+      p.t=0;p.h=1-p.h;p.n++;
+      if(p.n>=p.max){                       // sıradaki pas rakip tarafından kapılacak
+        p.steal=true;const nf=p.P[p.h],no=p.P[1-p.h];
+        p.m={x:lerp(nf.x,no.x,.55),y:lerp(nf.y,no.y,.55)};
+        p.ds={x:p.m.x+(Math.random()-.5)*W*.1,y:p.m.y+(Math.random()<.5?-1:1)*H*.16};p.def={...p.ds};
+      }
+    }
+  }else{
+    const t=Math.min(1,p.t/.55);
+    st.ball.x=lerp(f.x,p.m.x,t);st.ball.y=lerp(f.y,p.m.y,t);
+    p.def.x=lerp(p.ds.x,p.m.x,ease(t));p.def.y=lerp(p.ds.y,p.m.y,ease(t));
+    if(p.t>=.55)newPlay(p.team==='A'?'B':'A',p.m.x,p.m.y);
+  }
+}
+function drawPlay(){
+  const p=st.pl;if(!p)return;const r=RP()*.9,o=p.team==='A'?'B':'A';
+  for(const q of p.P)disc(q.x,q.y,tcol(p.team),tnm(p.team),r);
+  if(p.def)disc(p.def.x,p.def.y,tcol(o),tnm(o),r);
+  ballDraw(st.ball.x,st.ball.y);
+}
+
+/* ---- Atak: koşu -> şut -> kaleci ---- */
 function newAttack(){
   const m=model(),team=Math.random()<m.atkA?'A':'B';
   const conv=team==='A'?m.convA:m.convB,r=Math.random();
   const out=r<conv?'goal':(r<conv+(1-conv)*.55?'save':'miss');
-  const topTeam=st.htDone?'B':'A';
-  const goalTop=team!==topTeam;               // üstteki takımın rakibi üst kaleye atar
-  const sx=W*(.2+Math.random()*.6),sy=H*(goalTop?.5+Math.random()*.12:.38+Math.random()*.12);
-  const ty=goalTop?3+GG()*.5:H-3-GG()*.5;
-  const tx=out==='miss'?W/2+(Math.random()<.5?-1:1)*W*.22:W/2+(Math.random()-.5)*W*.2;
-  st.atk={team,out,goalTop,t:0,sx,sy,tx,ty,cx:(sx+tx)/2+(Math.random()-.5)*W*.5,cy:(sy+ty)/2,minute:Math.floor(st.min)};
+  const goalTop=team!==(st.htDone?'B':'A'),dirY=goalTop?-1:1,sgn=Math.random()<.5?-1:1;
+  const b=st.ball||{x:W/2,y:H/2},sx=b.x,sy=clamp(b.y,H*.36,H*.64);
+  const px=W*(.3+Math.random()*.4),py=goalTop?H*.27:H*.73;
+  const gl=goalTop?3+GG()*.5:H-3-GG()*.5;let tx,ty=gl;
+  if(out==='goal')tx=W/2+sgn*(.1+Math.random()*.03)*W;
+  else if(out==='save'){tx=W/2+sgn*(.05+Math.random()*.08)*W;ty=kyOf(goalTop)-dirY*W*.02;}
+  else tx=W/2+sgn*(.19+Math.random()*.05)*W;
+  st.atk={team,out,goalTop,dirY,sgn,phase:0,t:0,s:0,fx:0,sx,sy,px,py,tx,ty,cx:(sx+px)/2+(Math.random()-.5)*W*.3,cy:(sy+py)/2,minute:Math.floor(st.min)};
 }
-function pt(a,t){const u=1-t;return[u*u*a.sx+2*u*t*a.cx+t*t*a.tx,u*u*a.sy+2*u*t*a.cy+t*t*a.ty];}
+function pt(a,t){const u=1-t;return[u*u*a.sx+2*u*t*a.cx+t*t*a.px,u*u*a.sy+2*u*t*a.cy+t*t*a.py];}
 function tick(t){$('tk').innerHTML=t;}
 function resolve(a){
-  const nm=a.team==='A'?$('nA').value:$('nB').value;
+  const nm=tnm(a.team);
   if(a.out==='goal'){st.s[a.team]++;$('sc').textContent=st.s.A+' : '+st.s.B;tick('<b style="color:#fff">'+a.minute+'’ GOL! '+nm+'</b>');}
   else tick(a.minute+'’ '+nm+(a.out==='save'?' – kaleci kurtardı':' – şut dışarı'));
+}
+function keeperPose(a){
+  if(a.phase===0)return null;
+  const r=RP(),adx=Math.abs(a.tx-W/2),p=ease(clamp(a.s*1.15,0,1));let c,L;
+  if(a.out==='save'){L=r*(.7+1.3*p);c=Math.max(0,adx-r*1.8)*p;}      // topa yetişir
+  else if(a.out==='goal'){L=r*(.7+.7*p);c=.2*adx*p;}                  // uzanır ama yetişemez
+  else{L=r*(.7+.6*p);c=.15*adx*p;}
+  return {dx:a.sgn*c,L,sgn:a.sgn};
+}
+function ballOf(a){
+  const R=W*.05,[x,y]=pt(a,a.phase===0?a.t:1);
+  if(a.phase===0)return{x:x+Math.sin(a.t*28)*R*.3,y:y+a.dirY*R*1.15};
+  const bx=a.px,by=a.py+a.dirY*R*1.15;
+  if(a.phase===1)return{x:lerp(bx,a.tx,a.s),y:lerp(by,a.ty,a.s)};
+  const e=ease(Math.min(1,a.fx));
+  if(a.out==='goal')return{x:a.tx,y:a.ty};
+  if(a.out==='save')return{x:a.tx+a.sgn*e*W*.12,y:a.ty-a.dirY*e*H*.1};
+  return{x:a.tx+a.sgn*e*W*.05,y:a.ty+a.dirY*e*H*.03};
 }
 
 function loop(ts){
@@ -221,34 +295,29 @@ function loop(ts){
     st.min+=dt/1000*1.6*speed;
     const nx=st.sched[st.i];
     if(nx!==undefined&&(nx<45||st.htDone)&&st.min>=nx){st.min=nx;st.i++;newAttack();}
-    else if(!st.htDone&&st.min>=45){st.min=45;st.htDone=true;st.htT=2.2;setSides();tick('Devre arası – takımlar yer değiştirdi ⇄');}
+    else if(!st.htDone&&st.min>=45){st.min=45;st.htDone=true;st.htT=2.2;st.pl=null;setSides();tick('Devre arası – takımlar yer değiştirdi ⇄');}
     else if(nx===undefined&&st.min>=90){st.min=90;st.over=true;endMatch();}
+    if(!st.over&&!st.atk&&st.htT<=0){
+      if(!st.pl){newPlay(st.next||(Math.random()<model().atkA?'A':'B'),W*.5,H*.5);st.next=null;}
+      stepPlay(dt);
+    }
   }
   $('clk').textContent=Math.floor(st.min)+'’';
-  let shT=0,shB=0;const a=st.atk;let fxT=null;
+  const a=st.atk,kd={};
   if(a){
-    a.t+=dt/1000*0.7*speed;
-    if(a.t>=1){
-      if(!a.done){a.done=true;a.fx=0;resolve(a);}
-      a.fx+=dt/1000;
-      if(a.out==='goal'){if(a.goalTop)shT=a.fx*40;else shB=a.fx*40;}
-      if(a.fx>1.3){st.atk=null;}
-    }
+    if(a.phase===0){a.t+=dt/1000*.7*speed;if(a.t>=1){a.t=1;a.phase=1;}}
+    else if(a.phase===1){a.s=Math.min(1,a.s+dt/1000*1.8*speed);if(a.s>=1){a.phase=2;a.fx=0;resolve(a);}}
+    else{a.fx+=dt/1000;if(a.fx>1.3){st.atk=null;st.pl=null;st.next=a.out==='goal'?(a.team==='A'?'B':'A'):null;}}
+    kd[a.goalTop?'top':'bot']=keeperPose(a);
+    if(a.phase===2&&a.out==='goal')kd[a.goalTop?'shT':'shB']=a.fx*40;
   }
-  scene(shT,shB);
-  if(a&&st.atk){
-    const col=$(a.team==='A'?'cA':'cB').value,nm=$(a.team==='A'?'nA':'nB').value,R=W*.06;
-    if(a.t<1){const [x,y]=pt(a,a.t);disc(x,y,col,nm,R);}
-    else{
-      const [x,y]=pt(a,1),dir=a.goalTop?1:-1;
-      if(a.out==='goal'){disc(x,y,col,nm,R*Math.max(.3,1-a.fx*.5));bigText('GOL!',Math.round(W*.16),H/2);}
-      else{
-        const dx=a.out==='save'?(x-W/2)*1.2:(x>W/2?60:-60);
-        disc(x+dx*a.fx*2,y+dir*a.fx*H*.2,col,nm,R);
-        bigText(a.out==='save'?'KURTARIŞ':'DIŞARI',Math.round(W*.08),H/2);
-      }
-    }
-  }
+  scene(kd);
+  if(st.atk){
+    const R=W*.05,[x,y]=pt(a,a.phase===0?a.t:1);
+    disc(x,y,tcol(a.team),tnm(a.team),R);
+    const b=ballOf(a);st.ball=b;ballDraw(b.x,b.y);
+    if(a.phase===2)bigText(a.out==='goal'?'GOL!':a.out==='save'?'KURTARIŞ':'DIŞARI',Math.round(W*(a.out==='goal'?.16:.08)),H/2);
+  }else if(st.pl)drawPlay();
   if(st.htT>0){
     ctx.fillStyle='rgba(0,0,0,.55)';ctx.fillRect(0,H/2-44,W,88);
     bigText('DEVRE ARASI',Math.round(W*.075),H/2-12);
@@ -261,7 +330,7 @@ function loop(ts){
 function start(){
   if(raf)cancelAnimationFrame(raf);
   closeSheet();hideEnd();
-  st={min:0,s:{A:0,B:0},atk:null,over:false,i:0,htDone:false,htT:0,sched:planAttacks()};
+  st={min:0,s:{A:0,B:0},atk:null,over:false,i:0,htDone:false,htT:0,pl:null,next:null,sched:planAttacks()};
   $('sc').textContent='0 : 0';$('clk').textContent='0’';tick('Maç başladı!');
   $('go').textContent='⟳ Yeniden';setSides();refreshInfoBadges();
   raf=requestAnimationFrame(loop);
